@@ -33,9 +33,9 @@ let package = Package(
                 .portraitUpsideDown(.when(deviceFamilies: [.pad]))
             ],
             capabilities: [
-                .camera(purposeString: "Unknown Usage Description"),
-                .microphone(purposeString: "Unknown Usage Description"),
-                .speechRecognition(purposeString: "Unknown Usage Description")
+                .camera(purposeString: "we need to access your camera for AR experience."),
+                .microphone(purposeString: "we need to access your microphone to check your speech recognition."),
+                .speechRecognition(purposeString: "we need to access your speech recognition for pronounciation.")
             ]
         )
     ],

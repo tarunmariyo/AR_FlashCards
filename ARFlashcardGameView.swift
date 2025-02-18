@@ -19,10 +19,16 @@ struct ARFlashcardGameView: View {
     }
     
     func speakWord() {
+        // Configure speech synthesizer
+        try? AVAudioSession.sharedInstance().setCategory(.playback, mode: .default)
+        try? AVAudioSession.sharedInstance().setActive(true, options: .notifyOthersOnDeactivation)
+        
         let utterance = AVSpeechUtterance(string: card.word)
         utterance.voice = AVSpeechSynthesisVoice(language: "en-US")
-        utterance.rate = 0.5
-        utterance.pitchMultiplier = 1.2
+        utterance.rate = 0.4  // Slower rate for clarity
+        utterance.pitchMultiplier = 1.0
+        utterance.volume = 1.0  // Maximum volume
+        
         synthesizer.speak(utterance)
     }
     
@@ -118,6 +124,11 @@ struct ARFlashcardGameView: View {
                     .transition(.opacity)
                     .zIndex(1) // Ensure celebration appears on top
             }
+        }
+        .onAppear {
+            // Initialize audio session when view appears
+            try? AVAudioSession.sharedInstance().setCategory(.playback, mode: .default)
+            try? AVAudioSession.sharedInstance().setActive(true, options: .notifyOthersOnDeactivation)
         }
     }
 }

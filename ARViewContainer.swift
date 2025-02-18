@@ -28,6 +28,7 @@ struct ARViewContainer: UIViewRepresentable {
             
             // Store the card entity in the coordinator
             context.coordinator.cardEntity = cardEntity
+            context.coordinator.arView = arView
             
             // Position the card 0.5 meters in front of the camera
             let anchor = AnchorEntity(world: [0, 0, -0.5])
@@ -47,6 +48,7 @@ struct ARViewContainer: UIViewRepresentable {
     class Coordinator: NSObject {
         var parent: ARViewContainer
         var cardEntity: ModelEntity?
+        weak var arView: ARView?
         
         init(_ parent: ARViewContainer) {
             self.parent = parent
@@ -54,15 +56,27 @@ struct ARViewContainer: UIViewRepresentable {
         
         @objc func handleTap(_ recognizer: UITapGestureRecognizer) {
             Task { @MainActor in
-                guard let arView = recognizer.view as? ARView else { return }
+                guard let arView = arView else { return }
                 
-                let location = recognizer.location(in: arView)
-                let results = arView.raycast(from: location, allowing: .estimatedPlane, alignment: .any)
+                let tapLocation = recognizer.location(in: arView)
                 
-                if let result = results.first,
-                   let entity = cardEntity,
-                   entity.position.distance(to: result.worldTransform.translation) < 0.1 {
-                    parent.onTapText()
+                // Perform hit test with the tap location
+                if let result = arView.raycast(from: tapLocation, 
+                                             allowing: .estimatedPlane, 
+                                             alignment: .any).first,
+                   let entity = cardEntity {
+                    
+                    // Check if tap is near the card
+                    let cardPosition = entity.position
+                    let tapPosition = result.worldTransform.translation
+                    
+                    // Calculate distance between tap and card
+                    let distance = cardPosition.distance(to: tapPosition)
+                    
+                    // If tap is close to the card, trigger pronunciation
+                    if distance < 0.2 { // Adjust this threshold as needed
+                        parent.onTapText()
+                    }
                 }
             }
         }
@@ -71,7 +85,7 @@ struct ARViewContainer: UIViewRepresentable {
     func updateUIView(_ uiView: ARView, context: Context) {}
 }
 
-// Helper extension to calculate distance between points
+// Helper extensions
 extension SIMD3 where Scalar == Float {
     func distance(to other: SIMD3<Float>) -> Float {
         let diff = self - other

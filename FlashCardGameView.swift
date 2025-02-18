@@ -18,9 +18,16 @@ struct FlashCardGameView: View {
     let synthesizer = AVSpeechSynthesizer()
     @State private var isGameStarted = false
     @State private var isPlaying = false
+    @GestureState private var dragState = DragState.inactive
+    @State private var cardOffset: CGSize = .zero
+    @State private var currentCard: FlashCard
+    @State private var previousCard: FlashCard?
+    @State private var nextCard: FlashCard?
     
     init(card: FlashCard) {
         _card = State(initialValue: card)
+        _currentCard = State(initialValue: card)
+        _nextCard = State(initialValue: FlashCard.randomCard)
     }
     
     func speakWord() {
@@ -30,15 +37,14 @@ struct FlashCardGameView: View {
         try? AVAudioSession.sharedInstance().setCategory(.playback, mode: .default)
         try? AVAudioSession.sharedInstance().setActive(true, options: .notifyOthersOnDeactivation)
         
-        let utterance = AVSpeechUtterance(string: card.word)
+        let utterance = AVSpeechUtterance(string: currentCard.word)
         utterance.voice = AVSpeechSynthesisVoice(language: "en-US")
-        utterance.rate = 0.4  // Slower rate for clarity
+        utterance.rate = 0.4
         utterance.pitchMultiplier = 1.0
-        utterance.volume = 1.0  // Maximum volume
+        utterance.volume = 1.0
         
         synthesizer.speak(utterance)
         
-        // Reset the playing state after a short delay
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
             isPlaying = false
         }
@@ -50,7 +56,7 @@ struct FlashCardGameView: View {
         showFeedback = false
         
         speechRecognizer.startRecording { spokenText in
-            let similarity = calculateSimilarity(between: spokenText.lowercased(), and: card.word.lowercased())
+            let similarity = calculateSimilarity(between: spokenText.lowercased(), and: currentCard.word.lowercased())
             
             if similarity >= 0.8 {
                 score += 1
@@ -62,7 +68,7 @@ struct FlashCardGameView: View {
                 DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
                     withAnimation {
                         showCelebration = false
-                        card = FlashCard.randomCard
+                        changeCard(direction: .left)
                     }
                 }
             } else if similarity >= 0.6 {
@@ -82,6 +88,27 @@ struct FlashCardGameView: View {
         let length = Double(max(str1.count, str2.count))
         let distance = Double(str1.levenshteinDistance(to: str2))
         return 1 - (distance / length)
+    }
+    
+    func changeCard(direction: SwipeDirection) {
+        let impactMed = UIImpactFeedbackGenerator(style: .medium)
+        impactMed.impactOccurred()
+        
+        withAnimation(.spring()) {
+            switch direction {
+            case .left:
+                previousCard = currentCard
+                currentCard = nextCard ?? FlashCard.randomCard
+                nextCard = FlashCard.randomCard
+                card = currentCard // Update the main card state
+            case .right:
+                previousCard = currentCard
+                currentCard = nextCard ?? FlashCard.randomCard
+                nextCard = FlashCard.randomCard
+                card = currentCard // Update the main card state
+            }
+            cardOffset = .zero
+        }
     }
     
     var body: some View {
@@ -150,49 +177,41 @@ struct FlashCardGameView: View {
                 
                 Spacer()
                 
-                // Card centered in the screen
+                // Card Stack
                 ZStack {
-                    // Card background with gradient
-                    RoundedRectangle(cornerRadius: 25)
-                        .fill(
-                            LinearGradient(
-                                colors: [.white, .white.opacity(0.9)],
-                                startPoint: .topLeading,
-                                endPoint: .bottomTrailing
-                            )
-                        )
-                        .shadow(color: .black.opacity(0.2), radius: 15, x: 0, y: 10)
-                        .frame(width: 320, height: 420)
-                    
-                    // Card content
-                    VStack(spacing: 25) {
-                        Text(card.word)
-                            .font(.system(size: 44, weight: .bold, design: .rounded))
-                            .foregroundColor(.black)
-                            .shadow(color: .gray.opacity(0.3), radius: 2, x: 0, y: 2)
-                        
-                        if let image = UIImage(named: card.imageName) {
-                            Image(uiImage: image)
-                                .resizable()
-                                .scaledToFit()
-                                .frame(height: 220)
-                                .cornerRadius(15)
-                                .shadow(radius: 8)
-                                .padding(.horizontal, 20)
-                        }
-                        
-                        // Simple tap hint
-                        Text("Tap card to hear pronunciation")
-                            .font(.subheadline)
-                            .foregroundColor(.gray)
-                            .padding(.top, 10)
+                    // Next card (behind)
+                    if let next = nextCard {
+                        cardView(for: next)
+                            .offset(x: cardOffset.width > 0 ? cardOffset.width + 300 : cardOffset.width - 300)
+                            .scaleEffect(0.9)
+                            .opacity(0.5)
                     }
-                    .frame(width: 320, height: 420)
-                }
-                .scaleEffect(isPlaying ? 1.02 : 1.0)
-                .animation(.spring(response: 0.3), value: isPlaying)
-                .onTapGesture {
-                    speakWord()
+                    
+                    // Current card
+                    cardView(for: currentCard)
+                        .offset(x: cardOffset.width)
+                        .rotationEffect(.degrees(Double(cardOffset.width / 20)))
+                        .gesture(
+                            DragGesture()
+                                .updating($dragState) { drag, state, _ in
+                                    state = .dragging(translation: drag.translation)
+                                }
+                                .onChanged { value in
+                                    cardOffset = CGSize(width: value.translation.width, height: 0)
+                                }
+                                .onEnded { value in
+                                    let threshold: CGFloat = 100
+                                    if value.translation.width > threshold {
+                                        changeCard(direction: .right)
+                                    } else if value.translation.width < -threshold {
+                                        changeCard(direction: .left)
+                                    } else {
+                                        withAnimation(.spring()) {
+                                            cardOffset = .zero
+                                        }
+                                    }
+                                }
+                        )
                 }
                 
                 Spacer()
@@ -256,6 +275,51 @@ struct FlashCardGameView: View {
             ARFlashcardGameView(card: card, onDismiss: { showAR = false })
         }
     }
+    
+    func cardView(for card: FlashCard) -> some View {
+        ZStack {
+            // Card background
+            RoundedRectangle(cornerRadius: 25)
+                .fill(
+                    LinearGradient(
+                        colors: [.white, .white.opacity(0.9)],
+                        startPoint: .topLeading,
+                        endPoint: .bottomTrailing
+                    )
+                )
+                .shadow(color: .black.opacity(0.2), radius: 15, x: 0, y: 10)
+                .frame(width: 320, height: 420)
+            
+            // Card content
+            VStack(spacing: 25) {
+                Text(card.word)
+                    .font(.system(size: 44, weight: .bold, design: .rounded))
+                    .foregroundColor(.black)
+                    .shadow(color: .gray.opacity(0.3), radius: 2, x: 0, y: 2)
+                
+                if let image = UIImage(named: card.imageName) {
+                    Image(uiImage: image)
+                        .resizable()
+                        .scaledToFit()
+                        .frame(height: 220)
+                        .cornerRadius(15)
+                        .shadow(radius: 8)
+                        .padding(.horizontal, 20)
+                }
+                
+                Text("Tap card to hear pronunciation")
+                    .font(.subheadline)
+                    .foregroundColor(.gray)
+                    .padding(.top, 10)
+            }
+            .frame(width: 320, height: 420)
+        }
+        .scaleEffect(isPlaying ? 1.02 : 1.0)
+        .animation(.spring(response: 0.3), value: isPlaying)
+        .onTapGesture {
+            speakWord()
+        }
+    }
 }
 
 // Helper extension for calculating word similarity
@@ -287,5 +351,24 @@ extension String {
         }
         
         return matrix[str1.count][str2.count]
+    }
+}
+
+// Helper enums
+enum SwipeDirection {
+    case left, right
+}
+
+enum DragState {
+    case inactive
+    case dragging(translation: CGSize)
+    
+    var translation: CGSize {
+        switch self {
+        case .inactive:
+            return .zero
+        case .dragging(let translation):
+            return translation
+        }
     }
 } 
