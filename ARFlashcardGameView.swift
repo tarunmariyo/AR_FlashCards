@@ -4,15 +4,18 @@ import RealityKit
 import Speech
 
 struct ARFlashcardGameView: View {
+    @Environment(\.dismiss) private var dismiss
     @State private var card: FlashCard
     @State private var showCelebration = false
     @State private var score = 0
     @StateObject private var speechRecognizer = SpeechRecognizer()
     @State private var isListening = false
     let synthesizer = AVSpeechSynthesizer()
+    let onDismiss: () -> Void
     
-    init(card: FlashCard) {
+    init(card: FlashCard, onDismiss: @escaping () -> Void) {
         _card = State(initialValue: card)
+        self.onDismiss = onDismiss
     }
     
     func speakWord() {
@@ -50,20 +53,40 @@ struct ARFlashcardGameView: View {
             
             // Overlay UI
             VStack {
-                // Top score bar
+                // Top bar with back button and score
                 HStack {
-                    Image(systemName: "star.fill")
-                        .foregroundColor(.yellow)
-                        .font(.system(size: 24))
-                    Text("Score: \(score)")
-                        .font(.custom("Arial Rounded MT Bold", size: 24))
+                    Button(action: {
+                        onDismiss()
+                        dismiss()
+                    }) {
+                        HStack {
+                            Image(systemName: "chevron.left")
+                            Text("Back to Cards")
+                        }
+                        .font(.title3.bold())
                         .foregroundColor(.white)
-                        .padding()
+                        .padding(10)
                         .background(
-                            RoundedRectangle(cornerRadius: 15)
-                                .fill(Color.blue.opacity(0.7))
-                                .shadow(radius: 5)
+                            Capsule()
+                                .fill(Color.black.opacity(0.3))
                         )
+                    }
+                    .padding(.leading)
+                    
+                    Spacer()
+                    
+                    // Score display
+                    HStack {
+                        Image(systemName: "star.fill")
+                            .foregroundColor(.yellow)
+                        Text("Score: \(score)")
+                            .font(.title2.bold())
+                            .foregroundColor(.white)
+                    }
+                    .padding()
+                    .background(Color.black.opacity(0.3))
+                    .cornerRadius(15)
+                    .padding(.trailing)
                 }
                 .padding(.top, 20)
                 
@@ -102,6 +125,6 @@ struct ARFlashcardGameView: View {
 // Preview provider
 struct ARFlashcardGameView_Previews: PreviewProvider {
     static var previews: some View {
-        ARFlashcardGameView(card: FlashCard.randomCard)
+        ARFlashcardGameView(card: FlashCard.randomCard, onDismiss: {})
     }
 } 
