@@ -3,7 +3,6 @@ import AVFoundation
 import Speech
 
 struct FlashCardGameView: View {
-    @Environment(\.dismiss) private var dismiss
     @State private var card: FlashCard
     @State private var isFlipped = false
     @State private var offset = CGSize.zero
@@ -23,11 +22,53 @@ struct FlashCardGameView: View {
     @State private var currentCard: FlashCard
     @State private var previousCard: FlashCard?
     @State private var nextCard: FlashCard?
+    @State private var currentCategoryCards: [FlashCard] = []
+    @State private var currentCardIndex: Int = 0
     
     init(card: FlashCard) {
         _card = State(initialValue: card)
         _currentCard = State(initialValue: card)
-        _nextCard = State(initialValue: FlashCard.randomCard)
+        _currentCategoryCards = State(initialValue: FlashCard.cardsForCategory(card.category))
+        let initialIndex = FlashCard.cardsForCategory(card.category).firstIndex(where: { $0.word == card.word }) ?? 0
+        _currentCardIndex = State(initialValue: initialIndex)
+        _nextCard = State(initialValue: getNextCard(in: FlashCard.cardsForCategory(card.category), after: initialIndex))
+    }
+    
+    private func getNextCard(in cards: [FlashCard], after index: Int) -> FlashCard? {
+        let nextIndex = index + 1
+        return nextIndex < cards.count ? cards[nextIndex] : nil
+    }
+    
+    private func getPreviousCard(in cards: [FlashCard], before index: Int) -> FlashCard? {
+        let previousIndex = index - 1
+        return previousIndex >= 0 ? cards[previousIndex] : nil
+    }
+    
+    func changeCard(direction: SwipeDirection) {
+        let impactMed = UIImpactFeedbackGenerator(style: .medium)
+        impactMed.impactOccurred()
+        
+        withAnimation(.spring()) {
+            switch direction {
+            case .left:
+                if currentCardIndex < currentCategoryCards.count - 1 {
+                    currentCardIndex += 1
+                    previousCard = currentCard
+                    currentCard = currentCategoryCards[currentCardIndex]
+                    nextCard = getNextCard(in: currentCategoryCards, after: currentCardIndex)
+                    card = currentCard
+                }
+            case .right:
+                if currentCardIndex > 0 {
+                    currentCardIndex -= 1
+                    previousCard = currentCard
+                    currentCard = currentCategoryCards[currentCardIndex]
+                    nextCard = getNextCard(in: currentCategoryCards, after: currentCardIndex)
+                    card = currentCard
+                }
+            }
+            cardOffset = .zero
+        }
     }
     
     func speakWord() {
@@ -51,6 +92,8 @@ struct FlashCardGameView: View {
     }
     
     func startListening() {
+        guard !isListening else { return }
+        
         isListening = true
         feedbackMessage = ""
         showFeedback = false
@@ -64,22 +107,32 @@ struct FlashCardGameView: View {
                 feedbackMessage = "Perfect! 🌟"
                 feedbackColor = .green
                 
-                // Show celebration and change card after delay
+                // Ensure proper animation timing
+                withAnimation(.easeInOut(duration: 0.5)) {
+                    showFeedback = true
+                }
+                
+                // Add delay before card transition
                 DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
-                    withAnimation {
-                        showCelebration = false
+                    showCelebration = false
+                    withAnimation(.spring(response: 0.5, dampingFraction: 0.7)) {
                         changeCard(direction: .left)
                     }
                 }
             } else if similarity >= 0.6 {
                 feedbackMessage = "Close! Try again 💪"
                 feedbackColor = .orange
+                withAnimation {
+                    showFeedback = true
+                }
             } else {
                 feedbackMessage = "Keep practicing! 📚"
                 feedbackColor = .red
+                withAnimation {
+                    showFeedback = true
+                }
             }
             
-            showFeedback = true
             isListening = false
         }
     }
@@ -88,27 +141,6 @@ struct FlashCardGameView: View {
         let length = Double(max(str1.count, str2.count))
         let distance = Double(str1.levenshteinDistance(to: str2))
         return 1 - (distance / length)
-    }
-    
-    func changeCard(direction: SwipeDirection) {
-        let impactMed = UIImpactFeedbackGenerator(style: .medium)
-        impactMed.impactOccurred()
-        
-        withAnimation(.spring()) {
-            switch direction {
-            case .left:
-                previousCard = currentCard
-                currentCard = nextCard ?? FlashCard.randomCard
-                nextCard = FlashCard.randomCard
-                card = currentCard // Update the main card state
-            case .right:
-                previousCard = currentCard
-                currentCard = nextCard ?? FlashCard.randomCard
-                nextCard = FlashCard.randomCard
-                card = currentCard // Update the main card state
-            }
-            cardOffset = .zero
-        }
     }
     
     var body: some View {
@@ -120,25 +152,8 @@ struct FlashCardGameView: View {
                 .ignoresSafeArea()
             
             VStack(spacing: 20) {
-                // Top bar with back button, score, and AR button
+                // Top bar with score and AR button
                 HStack {
-                    Button(action: {
-                        isGameStarted = false
-                        dismiss()
-                    }) {
-                        HStack {
-                            Image(systemName: "chevron.left")
-                            Text("Back")
-                        }
-                        .font(.title3.bold())
-                        .foregroundColor(.white)
-                        .padding(10)
-                        .background(Capsule().fill(Color.black.opacity(0.3)))
-                    }
-                    .padding(.leading)
-                    
-                    Spacer()
-                    
                     // Score display
                     HStack {
                         Image(systemName: "star.fill")
@@ -272,7 +287,7 @@ struct FlashCardGameView: View {
             try? AVAudioSession.sharedInstance().setActive(true, options: .notifyOthersOnDeactivation)
         }
         .fullScreenCover(isPresented: $showAR) {
-            ARFlashcardGameView(card: card, onDismiss: { showAR = false })
+            ARFlashcardGameView(card: card)
         }
     }
     
@@ -322,38 +337,6 @@ struct FlashCardGameView: View {
     }
 }
 
-// Helper extension for calculating word similarity
-extension String {
-    func levenshteinDistance(to string: String) -> Int {
-        let str1 = Array(self)
-        let str2 = Array(string)
-        var matrix = Array(repeating: Array(repeating: 0, count: str2.count + 1), count: str1.count + 1)
-        
-        for i in 0...str1.count {
-            matrix[i][0] = i
-        }
-        for j in 0...str2.count {
-            matrix[0][j] = j
-        }
-        
-        for i in 1...str1.count {
-            for j in 1...str2.count {
-                if str1[i - 1] == str2[j - 1] {
-                    matrix[i][j] = matrix[i - 1][j - 1]
-                } else {
-                    matrix[i][j] = Swift.min(
-                        matrix[i - 1][j] + 1,     // deletion
-                        matrix[i][j - 1] + 1,     // insertion
-                        matrix[i - 1][j - 1] + 1  // substitution
-                    )
-                }
-            }
-        }
-        
-        return matrix[str1.count][str2.count]
-    }
-}
-
 // Helper enums
 enum SwipeDirection {
     case left, right
@@ -371,4 +354,4 @@ enum DragState {
             return translation
         }
     }
-} 
+}

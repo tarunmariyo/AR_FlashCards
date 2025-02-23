@@ -12,7 +12,29 @@ struct ARViewContainer: UIViewRepresentable {
         // Create AR configuration
         let config = ARWorldTrackingConfiguration()
         config.planeDetection = [.horizontal]
-        arView.session.run(config)
+        
+        // Enable auto-focus and high-resolution capture
+        guard let device = MTLCreateSystemDefaultDevice() else { return arView }
+        config.videoFormat = ARWorldTrackingConfiguration.supportedVideoFormats.first { format in
+            Int(format.imageResolution.width) <= device.maxBufferLength &&
+            format.framesPerSecond <= 60
+        } ?? ARWorldTrackingConfiguration.supportedVideoFormats[0]
+        
+        // Enable camera calibration
+        config.isAutoFocusEnabled = true
+        config.worldAlignment = .gravity
+        
+        // Configure frame semantics - only enable essential features
+        if #available(iOS 13.0, *) {
+            // Use basic frame semantics to ensure compatibility
+            config.frameSemantics = []
+        }
+        
+        // Run session with options
+        arView.session.run(config, options: [.resetTracking, .removeExistingAnchors])
+        
+        // Set up AR session delegate
+        arView.session.delegate = context.coordinator as? ARSessionDelegate
         
         // Create and add the flashcard
         Task { @MainActor in
@@ -45,13 +67,14 @@ struct ARViewContainer: UIViewRepresentable {
     }
     
     @MainActor
-    class Coordinator: NSObject {
+    class Coordinator: NSObject, ARSessionDelegate {
         var parent: ARViewContainer
         var cardEntity: ModelEntity?
         weak var arView: ARView?
         
         init(_ parent: ARViewContainer) {
             self.parent = parent
+            super.init()
         }
         
         @objc func handleTap(_ recognizer: UITapGestureRecognizer) {
@@ -97,4 +120,4 @@ extension simd_float4x4 {
     var translation: SIMD3<Float> {
         SIMD3<Float>(columns.3.x, columns.3.y, columns.3.z)
     }
-} 
+}
